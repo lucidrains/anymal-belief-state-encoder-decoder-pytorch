@@ -1,3 +1,5 @@
+<img src="./anymal-beliefs.png" width="400px"></img>
+
 ## Belief State Encoder / Decoder (Anymal) - Pytorch
 
 Implementation of the Belief State Encoder / Decoder in the new <a href="https://leggedrobotics.github.io/rl-perceptiveloco/">breakthrough robotics paper</a> from ETH Zurich.
