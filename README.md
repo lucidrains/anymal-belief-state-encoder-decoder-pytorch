@@ -6,6 +6,10 @@ Implementation of the Belief State Encoder / Decoder in the new <a href="https:/
 
 The results <a href="https://www.youtube.com/watch?v=zXbb6KQ0xV8">speak for itself</a>
 
+## Diagrams
+
+<img src="./anymal-teacher-student.png" width="500px"></img>
+
 ## Citations
 
 ```bibtex
