@@ -1,4 +1,4 @@
-<img src="./anymal-beliefs.png" width="400px"></img>
+<img src="./anymal-beliefs.png" width="550px"></img>
 
 ## Belief State Encoder / Decoder (Anymal) - Pytorch (wip)
 
