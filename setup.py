@@ -18,6 +18,7 @@ setup(
   ],
   install_requires=[
     'einops>=0.4',
+    'mujoco',
     'torch>=1.6',
   ],
   classifiers=[
