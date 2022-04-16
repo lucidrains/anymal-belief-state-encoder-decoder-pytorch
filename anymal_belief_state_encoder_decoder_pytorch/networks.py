@@ -10,6 +10,25 @@ from einops import rearrange
 def exists(val):
     return val is not None
 
+# in the paper
+# the network attention gates the exteroception, and then sums it to the belief state
+# but zero pads since they have different feature dimensions
+# not sure why they didn't project to the same dimensions
+
+def sum_with_zeropad(x, y):
+    x_dim, y_dim = x.shape[-1], y.shape[-1]
+
+    if x_dim == y_dim:
+        return x + y
+
+    if x_dim < y_dim:
+        x = F.pad(x, (y_dim - x_dim, 0))
+
+    if y_dim < x_dim:
+        y = F.pad(y, (x_dim - y_dim, 0))
+
+    return x + y
+
 # add basic MLP
 
 class MLP(nn.Module):
