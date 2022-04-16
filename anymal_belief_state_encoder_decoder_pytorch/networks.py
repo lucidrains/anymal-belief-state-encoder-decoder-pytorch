@@ -35,6 +35,8 @@ class MLP(nn.Module):
     def __init__(self, dims, activation = nn.LeakyReLU):
         super().__init__()
         assert isinstance(dims, (list, tuple))
+        assert len(dims) > 2, 'must have at least 3 dimensions (input, *hiddens, output)'
+
         dim_pairs = list(zip(dims[:-1], dims[1:]))
         *dim_pairs, dim_out_pair = dim_pairs
 
