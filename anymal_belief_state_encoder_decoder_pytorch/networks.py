@@ -30,6 +30,9 @@ class MLP(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
+        if isinstance(x, (tuple, list)):
+            x = torch.cat(x, dim = -1)
+
         return self.net(x)
 
 # they use basic PPO for the teacher
