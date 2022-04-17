@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 from torch.nn import GRUCell
+from torch.distributions import Categorical
 
 from einops import rearrange
 from einops_exts import check_shape
@@ -33,7 +34,12 @@ def sum_with_zeropad(x, y):
 # add basic MLP
 
 class MLP(nn.Module):
-    def __init__(self, dims, activation = nn.LeakyReLU):
+    def __init__(
+        self,
+        dims,
+        activation = nn.LeakyReLU,
+        final_activation = False
+    ):
         super().__init__()
         assert isinstance(dims, (list, tuple))
         assert len(dims) > 2, 'must have at least 3 dimensions (input, *hiddens, output)'
@@ -49,6 +55,10 @@ class MLP(nn.Module):
             ])
 
         layers.append(nn.Linear(*dim_out_pair))
+
+        if final_activation:
+            layers.append(activation())
+
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -119,11 +129,15 @@ class Student(nn.Module):
 
         # final MLP to action logits
 
-        self.to_action_logits = MLP((
+        self.to_logits = MLP((
             belief_state_dim + proprio_dim,
-            *mlp_hidden,
-            num_actions
+            *mlp_hidden
         ))
+
+        self.to_action_head = nn.Sequential(
+            nn.LeakyReLU(),
+            nn.Linear(mlp_hidden[-1], num_actions)
+        )
 
     def forward(
         self,
@@ -171,10 +185,12 @@ class Student(nn.Module):
             belief_state,
         ), dim = 1)
 
-        action_logits = self.to_action_logits(belief_state_with_proprio)
+        logits = self.to_logits(belief_state_with_proprio)
+
+        pi_logits = self.to_action_head(logits)
 
         if not return_estimated_info:
-            return action_logits, next_hiddens
+            return pi_logits, next_hiddens
 
         # belief state decoding
         # for reconstructing privileged and exteroception information from hidden belief states
@@ -187,7 +203,7 @@ class Student(nn.Module):
         recon_extero = recon_extero + gated_extero
         recon_extero = rearrange(recon_extero, 'b (n d) -> b n d', n = self.num_legs)
 
-        return action_logits, torch.stack(next_hiddens, dim = 0), (recon_privileged, recon_extero)
+        return pi_logits, torch.stack(next_hiddens, dim = 0), (recon_privileged, recon_extero)
 
 class Teacher(nn.Module):
     def __init__(
@@ -212,17 +228,27 @@ class Teacher(nn.Module):
         self.extero_encoder = MLP((extero_dim, *extero_encoder_hidden, latent_extero_dim))
         self.privileged_encoder = MLP((privileged_dim, *privileged_encoder_hidden, latent_privileged_dim))
 
-        self.to_action_logits = MLP((
+        self.to_logits = MLP((
             latent_extero_dim * num_legs + latent_privileged_dim + proprio_dim,
-            *mlp_hidden,
-            num_actions
+            *mlp_hidden
         ))
+
+        self.to_action_head = nn.Sequential(
+            nn.LeakyReLU(),
+            nn.Linear(mlp_hidden[-1], num_actions)
+        )
+
+        self.to_value_head = nn.Sequential(
+            nn.LeakyReLU(),
+            nn.Linear(mlp_hidden[-1], 1)
+        )
 
     def forward(
         self,
         proprio,
         extero,
-        privileged
+        privileged,
+        return_value_head = False
     ):
         check_shape(proprio, 'b d', d = self.proprio_dim)
         check_shape(extero, 'b n d', n = self.num_legs, d = self.extero_dim)
@@ -239,7 +265,15 @@ class Teacher(nn.Module):
             latent_privileged,
         ), dim = -1)
 
-        return self.to_action_logits(latent)
+        logits = self.to_logits(latent)
+
+        pi_logits = self.to_action_head(logits)
+
+        if not return_value_head:
+            return pi_logits
+
+        value_logits = self.to_value_head(logits)
+        return pi_logits, value_logits
 
 # manages both teacher and student under one module
 
@@ -302,10 +336,11 @@ class Anymal(nn.Module):
 
     def init_student_with_teacher(self):
         self.student.extero_encoder.load_state_dict(self.teacher.extero_encoder.state_dict())
-        self.student.to_action_logits.load_state_dict(self.teacher.to_action_logits.state_dict())
+        self.student.to_logits.load_state_dict(self.teacher.to_logits.state_dict())
+        self.student.to_action_head.load_state_dict(self.teacher.to_action_head.state_dict())
 
-    def forward_teacher(self, *args, **kwargs):
-        return self.teacher(*args, **kwargs)
+    def forward_teacher(self, *args, return_value_head = False, **kwargs):
+        return self.teacher(*args, return_value_head = return_value_head, **kwargs)
 
     def forward_student(self, *args, **kwargs):
         return self.student(*args, **kwargs)
@@ -335,7 +370,7 @@ class Anymal(nn.Module):
 
         # calculate behavior loss, which is also squared distance?
 
-        behavior_loss = F.mse_loss(teacher_action_logits, student_action_logits)
+        behavior_loss = F.mse_loss(teacher_action_logits, student_action_logits) # why not kl div on action probs?
 
         loss = behavior_loss + recon_loss * self.recon_loss_weight
         return loss, hiddens

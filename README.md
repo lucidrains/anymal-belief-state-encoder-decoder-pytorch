@@ -34,7 +34,7 @@ proprio = torch.randn(1, 133)
 extero = torch.randn(1, 4, 52)
 privileged = torch.randn(1, 50)
 
-action_logits = teacher(proprio, extero, privileged) # (1, 10)
+action_logits, value_logits = teacher(proprio, extero, privileged, return_values = True) # (1, 10)
 ```
 
 Student
