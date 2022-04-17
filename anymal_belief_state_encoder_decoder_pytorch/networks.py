@@ -14,8 +14,7 @@ def exists(val):
 
 # in the paper
 # the network attention gates the exteroception, and then sums it to the belief state
-# but zero pads since they have different feature dimensions
-# not sure why they didn't project to the same dimensions
+# todo: make sure the padding is on the right side
 
 def sum_with_zeropad(x, y):
     x_dim, y_dim = x.shape[-1], y.shape[-1]
