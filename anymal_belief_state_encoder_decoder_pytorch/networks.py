@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
-from torch.nn import GRU
+from torch.nn import GRUCell
 
 from einops import rearrange
 from einops_exts import check_shape
@@ -68,18 +68,100 @@ class PPO(nn.Module):
         return x
 
 class Student(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        num_actions,
+        proprio_dim = 133,
+        extero_dim = 52,  # in paper, height samples was marked as 208, but wasn't sure if that was per leg, or (4 legs x 52) = 208
+        latent_extero_dim = 24,
+        extero_encoder_hidden = (80, 60),
+        belief_state_encoder_hiddens = (64, 64),
+        extero_gate_encoder_hiddens = (64, 64),
+        belief_state_dim = 120,  # should be equal to teacher's extero_dim + privileged_dim (part of the GRU's responsibility is to maintain a hidden state that forms an opinion on the privileged information)
+        gru_num_layers = 2,
+        gru_hidden_size = 50,
+        mlp_hidden = (256, 160, 128),
+        num_legs = 4
+    ):
         super().__init__()
+        assert belief_state_dim > (num_legs * latent_extero_dim)
+        self.num_legs = num_legs
+        self.proprio_dim = proprio_dim
+        self.extero_dim = extero_dim        
 
-    def forward(self, x):
-        return x
+        # encoding of exteroception
+
+        self.extero_encoder = MLP((extero_dim, *extero_encoder_hidden, latent_extero_dim))
+
+        # GRU related parameters
+
+        gru_input_dim = (latent_extero_dim * num_legs) + proprio_dim
+        gru_input_dims = (gru_input_dim, *((gru_hidden_size,) * (gru_num_layers - 1)))
+        self.gru_cells = nn.ModuleList([GRUCell(input_dim, gru_hidden_size) for input_dim in gru_input_dims])
+
+        # belief state encoding
+
+        self.belief_state_encoder = MLP((gru_hidden_size, *belief_state_encoder_hiddens, belief_state_dim))
+
+        # attention gating of exteroception
+
+        self.to_extero_attn_gate = MLP((gru_hidden_size, *extero_gate_encoder_hiddens, latent_extero_dim * num_legs))
+
+        # final MLP to action logits
+
+        self.to_action_logits = MLP((
+            belief_state_dim,
+            *mlp_hidden,
+            num_actions
+        ))
+
+    def forward(
+        self,
+        proprio,
+        extero,
+        hiddens = None
+    ):
+        check_shape(proprio, 'b d', d = self.proprio_dim)
+        check_shape(extero, 'b n d', n = self.num_legs, d = self.extero_dim)
+
+        latent_extero = self.extero_encoder(extero)
+        latent_extero = rearrange(latent_extero, 'b ... -> b (...)')
+
+        # RNN
+
+        if not exists(hiddens):
+            hiddens = (None,) * len(self.gru_cells)
+
+        gru_input = torch.cat((proprio, latent_extero), dim = -1)
+
+        next_hiddens = []
+        for gru_cell, prev_hidden in zip(self.gru_cells, hiddens):
+            gru_input = gru_cell(gru_input, prev_hidden)
+            next_hiddens.append(gru_input)
+
+        gru_output = gru_input
+
+        # attention gating of exteroception
+
+        attention_gate = self.to_extero_attn_gate(gru_output)
+        gated_extero = latent_extero * attention_gate.sigmoid()
+
+        # belief state and add gated exteroception
+
+        belief_state = self.belief_state_encoder(gru_output)
+        belief_state = sum_with_zeropad(belief_state, gated_extero)
+
+        # to action logits
+
+        action_logits = self.to_action_logits(belief_state)
+        return action_logits, next_hiddens
 
 class Teacher(nn.Module):
     def __init__(
         self,
         num_actions,
         proprio_dim = 133,
-        extero_dim = 208,
+        extero_dim = 52,  # in paper, height samples was marked as 208, but wasn't sure if that was per leg, or (4 legs x 52) = 208
         latent_extero_dim = 24,
         extero_encoder_hidden = (80, 60),
         privileged_dim = 50,
@@ -114,11 +196,13 @@ class Teacher(nn.Module):
         check_shape(privileged, 'b d', d = self.privileged_dim)
 
         latent_extero = self.extero_encoder(extero)
+        latent_extero = rearrange(latent_extero, 'b ... -> b (...)')
+
         latent_privileged = self.privileged_encoder(privileged)
 
         latent = torch.cat((
             proprio,
-            rearrange(latent_extero, 'b ... -> b (...)'),
+            latent_extero,
             latent_privileged,
         ), dim = -1)
 
