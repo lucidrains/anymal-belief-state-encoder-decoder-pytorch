@@ -70,35 +70,44 @@ class MLP(nn.Module):
 # they use basic PPO for training the teacher with privileged information
 # then they used noisy student training, using the trained "oracle" teacher as guide
 
+def normalize(t, eps = 1e-5):
+    return (t - t.mean()) / (t.std() + eps)
+
+def clipped_value_loss(values, rewards, old_values, clip):
+    value_clipped = old_values + (values - old_values).clamp(-clip, clip)
+    value_loss_1 = (value_clipped.flatten() - rewards) ** 2
+    value_loss_2 = (values.flatten() - rewards) ** 2
+    return torch.mean(torch.max(value_loss_1, value_loss_2))
+
 class PPO(nn.Module):
     def __init__(
         self,
         anymal,
         eps_clip = 0.2,
-        beta_s = 0.01
+        beta_s = 0.01,
+        value_clip = 0.4,
     ):
         super().__init__()
         assert isinstance(anymal, Anymal)
         self.anymal = anymal
-        self.eps_clip = eps_clip
         self.beta_s = beta_s
+        self.eps_clip = eps_clip
+        self.value_clip = value_clip
 
-    def forward(
+    def derive_losses(
         self,
-        proprio,
-        extero,
-        privileged,
-        rewards
+        states,
+        actions,
+        old_log_probs,
+        rewards,
+        old_values
     ):
         dist, values = self.anymal.forward_teacher(
-            proprio,
-            extero,
-            privileged,
+            *states,
             return_value_head = True,
             return_action_categorical_dist = True
         )
 
-        action = dist.sample()
         action_log_probs = dist.log_prob(actions)
 
         entropy = dist.entropy()
@@ -107,7 +116,10 @@ class PPO(nn.Module):
         surr1 = ratios * advantages
         surr2 = ratios.clamp(1 - self.eps_clip, 1 + self.eps_clip) * advantages
         policy_loss = - torch.min(surr1, surr2) - self.beta_s * entropy
-        return policy_loss
+
+        value_loss = clipped_value_loss(values, rewards, old_values, self.value_clip)
+
+        return policy_loss, value_loss
 
 class Student(nn.Module):
     def __init__(
