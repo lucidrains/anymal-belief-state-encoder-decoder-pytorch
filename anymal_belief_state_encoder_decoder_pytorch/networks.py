@@ -141,12 +141,14 @@ class Student(nn.Module):
         # RNN
 
         if not exists(hiddens):
-            hiddens = (None,) * len(self.gru_cells)
+            prev_hiddens = (None,) * len(self.gru_cells)
+        else:
+            prev_hiddens = hiddens.unbind(dim = 0)
 
         gru_input = torch.cat((proprio, latent_extero), dim = -1)
 
         next_hiddens = []
-        for gru_cell, prev_hidden in zip(self.gru_cells, hiddens):
+        for gru_cell, prev_hidden in zip(self.gru_cells, prev_hiddens):
             gru_input = gru_cell(gru_input, prev_hidden)
             next_hiddens.append(gru_input)
 
@@ -185,7 +187,7 @@ class Student(nn.Module):
         recon_extero = recon_extero + gated_extero
         recon_extero = rearrange(recon_extero, 'b (n d) -> b n d', n = self.num_legs)
 
-        return action_logits, hiddens, (recon_privileged, recon_extero)
+        return action_logits, torch.stack(next_hiddens, dim = 0), (recon_privileged, recon_extero)
 
 class Teacher(nn.Module):
     def __init__(
@@ -335,4 +337,5 @@ class Anymal(nn.Module):
 
         behavior_loss = F.mse_loss(teacher_action_logits, student_action_logits)
 
-        return behavior_loss + recon_loss * self.recon_loss_weight
+        loss = behavior_loss + recon_loss * self.recon_loss_weight
+        return loss, hiddens

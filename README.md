@@ -55,10 +55,11 @@ student = Student(
 proprio = torch.randn(1, 133)
 extero = torch.randn(1, 4, 52)
 
-action_logits, hiddens = student(proprio, extero) # (1, 10), [(1, 50), (1, 50)]
-action_logits, hiddens = student(proprio, extero, hiddens) # (1, 10), [(1, 50), (1, 50)]
-action_logits, hiddens = student(proprio, extero, hiddens) # (1, 10), [(1, 50), (1, 50)]
+action_logits, hiddens = student(proprio, extero) # (1, 10), (2, 1, 50)
+action_logits, hiddens = student(proprio, extero, hiddens) # (1, 10), (2, 1, 50)
+action_logits, hiddens = student(proprio, extero, hiddens) # (1, 10), (2, 1, 50)
 
+# hiddens are in the shape (num gru layers, batch size, gru hidden dimension)
 # train with truncated bptt
 ```
 
