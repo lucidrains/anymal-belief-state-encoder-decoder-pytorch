@@ -4,6 +4,7 @@ from torch import nn, einsum
 from torch.nn import GRU
 
 from einops import rearrange
+from einops_exts import check_shape
 
 # helper functions
 
@@ -56,7 +57,8 @@ class MLP(nn.Module):
 
         return self.net(x)
 
-# they use basic PPO for the teacher
+# they use basic PPO for training the teacher with privileged information
+# then they used noisy student training, using the trained "oracle" teacher as guide
 
 class PPO(nn.Module):
     def __init__(self):
@@ -73,8 +75,51 @@ class Student(nn.Module):
         return x
 
 class Teacher(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        num_actions,
+        proprio_dim = 133,
+        extero_dim = 208,
+        latent_extero_dim = 24,
+        extero_encoder_hidden = (80, 60),
+        privileged_dim = 50,
+        latent_privileged_dim = 24,
+        privileged_encoder_hidden = (64, 32),
+        mlp_hidden = (256, 160, 128),
+        num_legs = 4
+    ):
         super().__init__()
+        self.num_legs = num_legs
+        self.proprio_dim = proprio_dim
+        self.extero_dim = extero_dim
+        self.privileged_dim = privileged_dim
 
-    def forward(self, x):
-        return x
+        self.extero_encoder = MLP((extero_dim, *extero_encoder_hidden, latent_extero_dim))
+        self.privileged_encoder = MLP((privileged_dim, *privileged_encoder_hidden, latent_privileged_dim))
+
+        self.to_actions_logits = MLP((
+            latent_extero_dim * num_legs + latent_privileged_dim + proprio_dim,
+            *mlp_hidden,
+            num_actions
+        ))
+
+    def forward(
+        self,
+        proprio,
+        extero,
+        privileged
+    ):
+        check_shape(proprio, 'b d', d = self.proprio_dim)
+        check_shape(extero, 'b n d', n = self.num_legs, d = self.extero_dim)
+        check_shape(privileged, 'b d', d = self.privileged_dim)
+
+        latent_extero = self.extero_encoder(extero)
+        latent_privileged = self.privileged_encoder(privileged)
+
+        latent = torch.cat((
+            proprio,
+            rearrange(latent_extero, 'b ... -> b (...)'),
+            latent_privileged,
+        ), dim = -1)
+
+        return self.to_actions_logits(latent)

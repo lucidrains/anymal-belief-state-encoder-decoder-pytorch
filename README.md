@@ -6,6 +6,33 @@ Implementation of the Belief State Encoder / Decoder in the new <a href="https:/
 
 The results <a href="https://www.youtube.com/watch?v=zXbb6KQ0xV8">speak for itself</a>
 
+## Install
+
+```bash
+$ pip install anymal-belief-state-encoder-decoder-pytorch
+```
+
+## Usage
+
+```python
+import torch
+from anymal_belief_state_encoder_decoder_pytorch import Teacher
+
+teacher = Teacher(
+    num_actions = 10,
+    num_legs = 4,
+    extero_dim = 52,
+    proprio_dim = 133,
+    privileged_dim = 50
+)
+
+proprio = torch.randn(1, 133)
+extero = torch.randn(1, 4, 52)
+privileged = torch.randn(1, 50)
+
+action_logits = teacher(proprio, extero, privileged) # (1, 10)
+```
+
 ## Diagrams
 
 <img src="./anymal-teacher-student.png" width="500px"></img>
