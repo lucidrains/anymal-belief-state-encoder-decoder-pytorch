@@ -120,7 +120,7 @@ class Student(nn.Module):
         # final MLP to action logits
 
         self.to_action_logits = MLP((
-            belief_state_dim,
+            belief_state_dim + proprio_dim,
             *mlp_hidden,
             num_actions
         ))
@@ -164,7 +164,12 @@ class Student(nn.Module):
 
         # to action logits
 
-        action_logits = self.to_action_logits(belief_state)
+        belief_state_with_proprio = torch.cat((
+            proprio,
+            belief_state,
+        ), dim = 1)
+
+        action_logits = self.to_action_logits(belief_state_with_proprio)
 
         if not return_estimated_info:
             return action_logits, next_hiddens
@@ -180,7 +185,7 @@ class Student(nn.Module):
         recon_extero = recon_extero + gated_extero
         recon_extero = rearrange(recon_extero, 'b (n d) -> b n d', n = self.num_legs)
 
-        return action_logits, hiddens, (recon_privileged, extero)
+        return action_logits, hiddens, (recon_privileged, recon_extero)
 
 class Teacher(nn.Module):
     def __init__(
@@ -205,7 +210,7 @@ class Teacher(nn.Module):
         self.extero_encoder = MLP((extero_dim, *extero_encoder_hidden, latent_extero_dim))
         self.privileged_encoder = MLP((privileged_dim, *privileged_encoder_hidden, latent_privileged_dim))
 
-        self.to_actions_logits = MLP((
+        self.to_action_logits = MLP((
             latent_extero_dim * num_legs + latent_privileged_dim + proprio_dim,
             *mlp_hidden,
             num_actions
@@ -232,4 +237,102 @@ class Teacher(nn.Module):
             latent_privileged,
         ), dim = -1)
 
-        return self.to_actions_logits(latent)
+        return self.to_action_logits(latent)
+
+# manages both teacher and student under one module
+
+class Anymal(nn.Module):
+    def __init__(
+        self,
+        num_actions,
+        proprio_dim = 133,
+        extero_dim = 52,
+        privileged_dim = 50,
+        num_legs = 4,
+        latent_extero_dim = 24,
+        latent_privileged_dim = 24,
+        teacher_extero_encoder_hidden = (80, 60),
+        teacher_privileged_encoder_hidden = (64, 32),
+        student_extero_gate_encoder_hiddens = (64, 64),
+        student_belief_state_encoder_hiddens = (64, 64),
+        student_belief_state_dim = 120,
+        student_gru_num_layers = 2,
+        student_gru_hidden_size = 50,
+        student_privileged_decoder_hiddens = (64, 64),
+        student_extero_decoder_hiddens = (64, 64),
+        student_extero_encoder_hidden = (80, 60),
+        mlp_hidden = (256, 160, 128),
+        recon_loss_weight = 0.5
+    ):
+        super().__init__()
+        self.student = Student(
+            num_actions = num_actions,
+            proprio_dim = proprio_dim,
+            extero_dim = extero_dim,
+            latent_extero_dim = latent_extero_dim,
+            extero_encoder_hidden = student_extero_encoder_hidden,
+            belief_state_encoder_hiddens = student_belief_state_encoder_hiddens,
+            extero_gate_encoder_hiddens = student_extero_gate_encoder_hiddens,
+            belief_state_dim = student_belief_state_dim,
+            gru_num_layers = student_gru_num_layers,
+            gru_hidden_size = student_gru_hidden_size,
+            mlp_hidden = mlp_hidden,
+            num_legs = num_legs,
+            privileged_dim = privileged_dim,
+            privileged_decoder_hiddens = student_privileged_decoder_hiddens,
+            extero_decoder_hiddens = student_extero_decoder_hiddens,
+        )
+
+        self.teacher = Teacher(
+            num_actions = num_actions,
+            proprio_dim = proprio_dim,
+            extero_dim = extero_dim,
+            latent_extero_dim = latent_extero_dim,
+            extero_encoder_hidden = teacher_extero_encoder_hidden,
+            privileged_dim = privileged_dim,
+            latent_privileged_dim = latent_privileged_dim,
+            privileged_encoder_hidden = teacher_privileged_encoder_hidden,
+            mlp_hidden = mlp_hidden,
+            num_legs = num_legs
+        )
+
+        self.recon_loss_weight = recon_loss_weight
+
+    def init_student_with_teacher(self):
+        self.student.extero_encoder.load_state_dict(self.teacher.extero_encoder.state_dict())
+        self.student.to_action_logits.load_state_dict(self.teacher.to_action_logits.state_dict())
+
+    def forward_teacher(self, *args, **kwargs):
+        return self.teacher(*args, **kwargs)
+
+    def forward_student(self, *args, **kwargs):
+        return self.student(*args, **kwargs)
+
+    # main forward for training the student with teacher as guide
+
+    def forward(
+        self,
+        proprio,
+        extero,
+        privileged,
+        hiddens = None,
+        noise_strength = 0.1
+    ):
+        self.teacher.eval()
+        with torch.no_grad():
+            teacher_action_logits = self.forward_teacher(proprio, extero, privileged)
+
+        noised_extero = extero + torch.rand_like(extero) * noise_strength
+
+        student_action_logits, hiddens, recons = self.student(proprio, noised_extero, hiddens = hiddens, return_estimated_info = True)
+
+        # calculate reconstruction loss of privileged and denoised exteroception
+
+        (recon_privileged, recon_extero) = recons
+        recon_loss = F.mse_loss(recon_privileged, privileged) + F.mse_loss(recon_extero, extero)
+
+        # calculate behavior loss, which is also squared distance?
+
+        behavior_loss = F.mse_loss(teacher_action_logits, student_action_logits)
+
+        return behavior_loss + recon_loss * self.recon_loss_weight
