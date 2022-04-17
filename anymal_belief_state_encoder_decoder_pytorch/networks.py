@@ -233,8 +233,10 @@ class Student(nn.Module):
 
         pi_logits = self.to_action_head(logits)
 
+        return_action = Categorical(pi_logits.softmax(dim = -1)) if return_action_categorical_dist else pi_logits
+
         if not return_estimated_info:
-            return pi_logits, next_hiddens
+            return return_action, next_hiddens
 
         # belief state decoding
         # for reconstructing privileged and exteroception information from hidden belief states
@@ -248,8 +250,6 @@ class Student(nn.Module):
         recon_extero = rearrange(recon_extero, 'b (n d) -> b n d', n = self.num_legs)
 
         # whether to return raw policy logits or action probs wrapped with Categorical
-
-        return_action = Categorical(pi_logits.softmax(dim = -1)) if return_action_categorical_dist else pi_logits
 
         return return_action, torch.stack(next_hiddens, dim = 0), (recon_privileged, recon_extero)
 
