@@ -64,7 +64,7 @@ action_logits, hiddens = student(proprio, extero, hiddens) # (1, 10), [(1, 50), 
 
 ## Todo
 
-- [ ] finish belief state decoder
+- [x] finish belief state decoder
 - [ ] wrapper class that instantiates both teacher and student, handle student forward pass with reconstruction loss + behavioral loss
 - [ ] handle noising of exteroception for student
 - [ ] add basic PPO logic for teacher

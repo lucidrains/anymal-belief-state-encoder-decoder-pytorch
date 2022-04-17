@@ -81,7 +81,10 @@ class Student(nn.Module):
         gru_num_layers = 2,
         gru_hidden_size = 50,
         mlp_hidden = (256, 160, 128),
-        num_legs = 4
+        num_legs = 4,
+        privileged_dim = 50,
+        privileged_decoder_hiddens = (64, 64),
+        extero_decoder_hiddens = (64, 64),
     ):
         super().__init__()
         assert belief_state_dim > (num_legs * latent_extero_dim)
@@ -105,7 +108,14 @@ class Student(nn.Module):
 
         # attention gating of exteroception
 
-        self.to_extero_attn_gate = MLP((gru_hidden_size, *extero_gate_encoder_hiddens, latent_extero_dim * num_legs))
+        self.to_latent_extero_attn_gate = MLP((gru_hidden_size, *extero_gate_encoder_hiddens, latent_extero_dim * num_legs))
+
+        # belief state decoder
+
+        self.privileged_decoder = MLP((gru_hidden_size, *privileged_decoder_hiddens, privileged_dim))
+        self.extero_decoder = MLP((gru_hidden_size, *extero_decoder_hiddens, extero_dim * num_legs))
+
+        self.to_extero_attn_gate = MLP((gru_hidden_size, *extero_gate_encoder_hiddens, extero_dim * num_legs))
 
         # final MLP to action logits
 
@@ -119,7 +129,8 @@ class Student(nn.Module):
         self,
         proprio,
         extero,
-        hiddens = None
+        hiddens = None,
+        return_estimated_info = False  # for returning estimated privileged info + exterceptive info, for reconstruction loss
     ):
         check_shape(proprio, 'b d', d = self.proprio_dim)
         check_shape(extero, 'b n d', n = self.num_legs, d = self.extero_dim)
@@ -143,18 +154,33 @@ class Student(nn.Module):
 
         # attention gating of exteroception
 
-        attention_gate = self.to_extero_attn_gate(gru_output)
-        gated_extero = latent_extero * attention_gate.sigmoid()
+        latent_extero_attn_gate = self.to_latent_extero_attn_gate(gru_output)
+        gated_latent_extero = latent_extero * latent_extero_attn_gate.sigmoid()
 
         # belief state and add gated exteroception
 
         belief_state = self.belief_state_encoder(gru_output)
-        belief_state = sum_with_zeropad(belief_state, gated_extero)
+        belief_state = sum_with_zeropad(belief_state, gated_latent_extero)
 
         # to action logits
 
         action_logits = self.to_action_logits(belief_state)
-        return action_logits, next_hiddens
+
+        if not return_estimated_info:
+            return action_logits, next_hiddens
+
+        # belief state decoding
+        # for reconstructing privileged and exteroception information from hidden belief states
+
+        recon_privileged = self.privileged_decoder(gru_output)
+        recon_extero = self.extero_decoder(gru_output)
+        extero_attn_gate = self.to_extero_attn_gate(gru_output)
+
+        gated_extero = rearrange(extero, 'b ... -> b (...)') * extero_attn_gate.sigmoid()
+        recon_extero = recon_extero + gated_extero
+        recon_extero = rearrange(recon_extero, 'b (n d) -> b n d', n = self.num_legs)
+
+        return action_logits, hiddens, (recon_privileged, extero)
 
 class Teacher(nn.Module):
     def __init__(
