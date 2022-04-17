@@ -34,7 +34,7 @@ proprio = torch.randn(1, 133)
 extero = torch.randn(1, 4, 52)
 privileged = torch.randn(1, 50)
 
-action_logits, value_logits = teacher(proprio, extero, privileged, return_values = True) # (1, 10)
+action_logits, values = teacher(proprio, extero, privileged, return_values = True) # (1, 10)
 ```
 
 Student
@@ -119,16 +119,12 @@ loss.backward()
 
 ```bibtex
 @article{2022,
-  title   = {Learning robust perceptive locomotion for quadrupedal robots in the wild},
-  volume  = {7},
-  ISSN    = {2470-9476},
-  url     = {http://dx.doi.org/10.1126/scirobotics.abk2822},
-  DOI     = {10.1126/scirobotics.abk2822},
-  number  = {62},
-  journal = {Science Robotics},
+  title     = {Learning robust perceptive locomotion for quadrupedal robots in the wild},
+  url       = {http://dx.doi.org/10.1126/scirobotics.abk2822},
+  journal   = {Science Robotics},
   publisher = {American Association for the Advancement of Science (AAAS)},
-  author  = {Miki, Takahiro and Lee, Joonho and Hwangbo, Jemin and Wellhausen, Lorenz and Koltun, Vladlen and Hutter, Marco},
-  year    = {2022},
-  month   = {Jan}
+  author    = {Miki, Takahiro and Lee, Joonho and Hwangbo, Jemin and Wellhausen, Lorenz and Koltun, Vladlen and Hutter, Marco},
+  year      = {2022},
+  month     = {Jan}
 }
 ```
