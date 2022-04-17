@@ -34,7 +34,7 @@ proprio = torch.randn(1, 133)
 extero = torch.randn(1, 4, 52)
 privileged = torch.randn(1, 50)
 
-action_logits, value_logits = teacher(proprio, extero, privileged, return_values = True) # (1, 10)
+action_logits, values = teacher(proprio, extero, privileged, return_values = True) # (1, 10)
 ```
 
 Student
@@ -84,22 +84,26 @@ proprio = torch.randn(1, 133)
 extero = torch.randn(1, 4, 52)
 privileged = torch.randn(1, 50)
 
-# first train teacher (todo: still need to add full PPO and rewards)
+# first train teacher (todo: still need to add full PPO training loop)
 
 teacher_action_logits = anymal.forward_teacher(proprio, extero, privileged)
 
-# ... do PPO things and train teacher based of its actions in simulation with domain randomization
+# teacher is trained with privileged information in simulation with domain randomization
 
-# then, after teacher is satisfactory, init the student with the teacher weights, whichever networks are the same
+# after teacher has satisfactory performance, init the student with the teacher weights, excluding the privilege information encoder from the teacher (which student does not have)
 
 anymal.init_student_with_teacher()
 
-# finally, feed the proprioception, exteroception, and privileged info to the anymal forward method to obtain the reconstruction and behavior loss
-
-# train this with truncated bptt with truncation step of 10
+# then train the student on the proprioception and noised exteroception, forcing it to reconstruct the privileged information that the teacher had access to (as well as learning to denoise the exterception) - there is also a behavior loss between the policy logits of the teacher with those of the student
 
 loss, hiddens = anymal(proprio, extero, privileged)
 loss.backward()
+
+# finally, you can deploy the student to the real world, zero-shot
+
+anymal.eval()
+dist, hiddens = anymal.forward_student(proprio, extero, return_action_categorical_dist = True)
+action = dist.sample()
 ```
 
 ... You've beaten Boston Dynamics and its team of highly paid control engineers!
@@ -119,16 +123,12 @@ loss.backward()
 
 ```bibtex
 @article{2022,
-  title   = {Learning robust perceptive locomotion for quadrupedal robots in the wild},
-  volume  = {7},
-  ISSN    = {2470-9476},
-  url     = {http://dx.doi.org/10.1126/scirobotics.abk2822},
-  DOI     = {10.1126/scirobotics.abk2822},
-  number  = {62},
-  journal = {Science Robotics},
+  title     = {Learning robust perceptive locomotion for quadrupedal robots in the wild},
+  url       = {http://dx.doi.org/10.1126/scirobotics.abk2822},
+  journal   = {Science Robotics},
   publisher = {American Association for the Advancement of Science (AAAS)},
-  author  = {Miki, Takahiro and Lee, Joonho and Hwangbo, Jemin and Wellhausen, Lorenz and Koltun, Vladlen and Hutter, Marco},
-  year    = {2022},
-  month   = {Jan}
+  author    = {Miki, Takahiro and Lee, Joonho and Hwangbo, Jemin and Wellhausen, Lorenz and Koltun, Vladlen and Hutter, Marco},
+  year      = {2022},
+  month     = {Jan}
 }
 ```
