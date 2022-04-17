@@ -109,7 +109,7 @@ loss.backward()
 - [x] finish belief state decoder
 - [x] wrapper class that instantiates both teacher and student, handle student forward pass with reconstruction loss + behavioral loss
 - [x] handle noising of exteroception for student
-- [ ] add basic PPO logic for teacher + reward crafting
+- [ ] add basic PPO logic for teacher + reward crafting - play around with deepminds mujoco
 
 ## Diagrams
 
