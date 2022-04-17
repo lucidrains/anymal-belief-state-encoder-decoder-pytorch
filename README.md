@@ -73,7 +73,9 @@ anymal = Anymal(
     num_actions = 10,
     num_legs = 4,
     extero_dim = 52,
-    proprio_dim = 133
+    proprio_dim = 133,
+    privileged_dim = 50,
+    recon_loss_weight = 0.5
 )
 
 # mock data
