@@ -71,11 +71,43 @@ class MLP(nn.Module):
 # then they used noisy student training, using the trained "oracle" teacher as guide
 
 class PPO(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        anymal,
+        eps_clip = 0.2,
+        beta_s = 0.01
+    ):
         super().__init__()
+        assert isinstance(anymal, Anymal)
+        self.anymal = anymal
+        self.eps_clip = eps_clip
+        self.beta_s = beta_s
 
-    def forward(self, x):
-        return x
+    def forward(
+        self,
+        proprio,
+        extero,
+        privileged,
+        rewards
+    ):
+        dist, values = self.anymal.forward_teacher(
+            proprio,
+            extero,
+            privileged,
+            return_value_head = True,
+            return_action_categorical_dist = True
+        )
+
+        action = dist.sample()
+        action_log_probs = dist.log_prob(actions)
+
+        entropy = dist.entropy()
+        ratios = (action_log_probs - old_log_probs).exp()
+        advantages = normalize(rewards - old_values.detach())
+        surr1 = ratios * advantages
+        surr2 = ratios.clamp(1 - self.eps_clip, 1 + self.eps_clip) * advantages
+        policy_loss = - torch.min(surr1, surr2) - self.beta_s * entropy
+        return policy_loss
 
 class Student(nn.Module):
     def __init__(
@@ -144,7 +176,8 @@ class Student(nn.Module):
         proprio,
         extero,
         hiddens = None,
-        return_estimated_info = False  # for returning estimated privileged info + exterceptive info, for reconstruction loss
+        return_estimated_info = False,  # for returning estimated privileged info + exterceptive info, for reconstruction loss
+        return_action_categorical_dist = False
     ):
         check_shape(proprio, 'b d', d = self.proprio_dim)
         check_shape(extero, 'b n d', n = self.num_legs, d = self.extero_dim)
@@ -203,7 +236,11 @@ class Student(nn.Module):
         recon_extero = recon_extero + gated_extero
         recon_extero = rearrange(recon_extero, 'b (n d) -> b n d', n = self.num_legs)
 
-        return pi_logits, torch.stack(next_hiddens, dim = 0), (recon_privileged, recon_extero)
+        # whether to return raw policy logits or action probs wrapped with Categorical
+
+        return_action = Categorical(pi_logits.softmax(dim = -1)) if return_action_categorical_dist else pi_logits
+
+        return return_action, torch.stack(next_hiddens, dim = 0), (recon_privileged, recon_extero)
 
 class Teacher(nn.Module):
     def __init__(
@@ -248,7 +285,8 @@ class Teacher(nn.Module):
         proprio,
         extero,
         privileged,
-        return_value_head = False
+        return_value_head = False,
+        return_action_categorical_dist = False
     ):
         check_shape(proprio, 'b d', d = self.proprio_dim)
         check_shape(extero, 'b n d', n = self.num_legs, d = self.extero_dim)
@@ -273,7 +311,9 @@ class Teacher(nn.Module):
             return pi_logits
 
         value_logits = self.to_value_head(logits)
-        return pi_logits, value_logits
+
+        return_action = Categorical(pi_logits.softmax(dim = -1)) if return_action_categorical_dist else pi_logits
+        return return_action, value_logits
 
 # manages both teacher and student under one module
 
