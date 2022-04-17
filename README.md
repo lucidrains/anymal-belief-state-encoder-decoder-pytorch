@@ -100,6 +100,12 @@ anymal.init_student_with_teacher()
 
 loss, hiddens = anymal(proprio, extero, privileged)
 loss.backward()
+
+# finally, you can deploy the student
+
+anymal.eval()
+dist, hiddens = anymal.forward_student(proprio, extero, return_action_categorical_dist = True)
+action = dist.sample()
 ```
 
 ... You've beaten Boston Dynamics and its team of highly paid control engineers!
