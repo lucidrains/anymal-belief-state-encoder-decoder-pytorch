@@ -1,7 +1,10 @@
+from collections import namedtuple
+
 import torch
+from torch import nn
 import torch.nn.functional as F
-from torch import nn, einsum
 from torch.nn import GRUCell
+from torch.utils.data import Dataset, DataLoader
 from torch.distributions import Categorical
 
 from einops import rearrange
@@ -69,6 +72,27 @@ class MLP(nn.Module):
 # they use basic PPO for training the teacher with privileged information
 # then they used noisy student training, using the trained "oracle" teacher as guide
 
+# ppo data
+
+Memory = namedtuple('Memory', ['state', 'action', 'action_log_prob', 'reward', 'done', 'value'])
+
+class ExperienceDataset(Dataset):
+    def __init__(self, data):
+        super().__init__()
+        self.data = data
+
+    def __len__(self):
+        return len(self.data[0])
+
+    def __getitem__(self, ind):
+        return tuple(map(lambda t: t[ind], self.data))
+
+def create_shuffled_dataloader(data, batch_size):
+    ds = ExperienceDataset(data)
+    return DataLoader(ds, batch_size = batch_size, shuffle = True)
+
+# ppo helper functions
+
 def normalize(t, eps = 1e-5):
     return (t - t.mean()) / (t.std() + eps)
 
@@ -78,22 +102,37 @@ def clipped_value_loss(values, rewards, old_values, clip):
     value_loss_2 = (values.flatten() - rewards) ** 2
     return torch.mean(torch.max(value_loss_1, value_loss_2))
 
+# main ppo class
+
 class PPO(nn.Module):
     def __init__(
         self,
         anymal,
+        env,
+        epochs = 200,
+        lr = 3e-4,
+        betas = (0.9, 0.999),
         eps_clip = 0.2,
         beta_s = 0.01,
         value_clip = 0.4,
+        max_timesteps = 500,
+        update_timesteps = 5000
     ):
         super().__init__()
         assert isinstance(anymal, Anymal)
+        self.env = env
+
         self.anymal = anymal
+        self.optimizer = Adam(anymal.teacher.parameters(), lr = lr, betas = betas)
+        self.epochs = epochs
+
+        self.update_timesteps = update_timesteps
+
         self.beta_s = beta_s
         self.eps_clip = eps_clip
         self.value_clip = value_clip
 
-    def derive_losses(
+    def learn_from_memories(
         self,
         states,
         actions,
@@ -101,24 +140,113 @@ class PPO(nn.Module):
         rewards,
         old_values
     ):
-        dist, values = self.anymal.forward_teacher(
-            *states,
-            return_value_head = True,
-            return_action_categorical_dist = True
-        )
+        # retrieve and prepare data from memory for training
+        states = []
+        actions = []
+        old_log_probs = []
+        rewards = []
+        masks = []
+        values = []
 
-        action_log_probs = dist.log_prob(actions)
+        for mem in memories:
+            states.append(mem.state)
+            actions.append(torch.tensor(mem.action))
+            old_log_probs.append(mem.action_log_prob)
+            rewards.append(mem.reward)
+            masks.append(1 - float(mem.done))
+            values.append(mem.value)
 
-        entropy = dist.entropy()
-        ratios = (action_log_probs - old_log_probs).exp()
-        advantages = normalize(rewards - old_values.detach())
-        surr1 = ratios * advantages
-        surr2 = ratios.clamp(1 - self.eps_clip, 1 + self.eps_clip) * advantages
-        policy_loss = - torch.min(surr1, surr2) - self.beta_s * entropy
+        # calculate generalized advantage estimate
 
-        value_loss = clipped_value_loss(values, rewards, old_values, self.value_clip)
+        next_state = map(torch.from_numpy, next_state)
+        next_state = map(lambda t: t.to(device), next_state)
+        _, next_value = self.anymal.forward_teacher(*next_state, return_value_head = True).detach()
+        values = values + [next_value]
 
-        return policy_loss, value_loss
+        returns = []
+        gae = 0
+        for i in reversed(range(len(rewards))):
+            delta = rewards[i] + self.gamma * values[i + 1] * masks[i] - values[i]
+            gae = delta + self.gamma * self.lam * masks[i] * gae
+            returns.insert(0, gae + values[i])
+
+        # convert values to torch tensors
+
+        to_torch_tensor = lambda t: torch.stack(t).to(device).detach()
+
+        states = map(to_torch_tensor, states)
+        actions = to_torch_tensor(actions)
+        old_values = to_torch_tensor(values[:-1])
+        old_log_probs = to_torch_tensor(old_log_probs)
+
+        rewards = torch.tensor(returns).float().to(device)
+
+        # prepare dataloader for policy phase training
+
+        dl = create_shuffled_dataloader([*states, actions, old_log_probs, rewards, old_values], self.minibatch_size)
+
+        # policy phase training, similar to original PPO
+        for _ in range(self.epochs):
+            for proprio, extero, privileged, actions, old_log_probs, rewards, old_values in dl:
+
+                dist, values = self.anymal.forward_teacher(
+                    proprio, extero, privileged,
+                    return_value_head = True,
+                    return_action_categorical_dist = True
+                )
+
+                action_log_probs = dist.log_prob(actions)
+
+                entropy = dist.entropy()
+                ratios = (action_log_probs - old_log_probs).exp()
+                advantages = normalize(rewards - old_values.detach())
+                surr1 = ratios * advantages
+                surr2 = ratios.clamp(1 - self.eps_clip, 1 + self.eps_clip) * advantages
+
+                policy_loss = - torch.min(surr1, surr2) - self.beta_s * entropy
+                value_loss = clipped_value_loss(values, rewards, old_values, self.value_clip)
+
+                (policy_loss.mean() + value_loss.mean()).backward()
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+
+    # does one episodes worth of learning
+
+    def forward(self, x):
+        device = next(self.parameters()).device
+
+        time = 0
+        state = env.reset() # states assumed to be (proprioception, exteroception, privileged information)
+
+        for timestep in range(self.max_timesteps):
+            time += 1
+
+            state = map(torch.from_numpy, state)
+            state = map(lambda t: t.to(device), state)
+
+            dist, values = self.anymal.forward_teacher(
+                *states,
+                return_value_head = True,
+                return_action_categorical_dist = True
+            )
+
+            action = dist.sample()
+            action_log_prob = dist.log_prob(action)
+            action = action.item()
+
+            next_state, reward, done, _ = env.step(action)
+
+            memory = Memory(state, action, action_log_prob, reward, done, value)
+            memories.append(memory)
+
+            state = next_state
+
+            if time % update_timesteps == 0:
+                self.learn_from_memories(memories, aux_memories, next_state)
+                memories.clear()
+
+            if done:
+                break
 
 class Student(nn.Module):
     def __init__(
