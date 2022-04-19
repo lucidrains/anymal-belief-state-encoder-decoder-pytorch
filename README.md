@@ -150,6 +150,44 @@ for _ in range(10):
 torch.save(anymal.state_dict(), './anymal-with-trained-teacher.pt')
 ```
 
+To train the student
+
+```python
+import torch
+from anymal_belief_state_encoder_decoder_pytorch import Anymal
+from anymal_belief_state_encoder_decoder_pytorch.trainer import StudentTrainer
+from anymal_belief_state_encoder_decoder_pytorch.ppo import MockEnv
+
+anymal = Anymal(
+    num_actions = 10,
+    num_legs = 4,
+    extero_dim = 52,
+    proprio_dim = 133,
+    privileged_dim = 50,
+    recon_loss_weight = 0.5
+)
+
+# first init student with teacher weights, at the very beginning
+# if not resuming training
+
+mock_env = MockEnv(
+    proprio_dim = 133,
+    extero_dim = 52,
+    privileged_dim = 50
+)
+
+trainer = StudentTrainer(
+    anymal = anymal,
+    env = mock_env
+)
+
+# for 100 episodes
+
+for _ in range(100):
+    trainer()
+
+```
+
 ... You've beaten Boston Dynamics and its team of highly paid control engineers!
 
 But you probably haven't beaten a real quadripedal "anymal" just yet :)
