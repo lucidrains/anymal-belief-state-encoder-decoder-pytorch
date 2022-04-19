@@ -108,6 +108,11 @@ action = dist.sample()
 
 ... You've beaten Boston Dynamics and its team of highly paid control engineers!
 
+But you probably haven't beaten a real quadripedal "anymal" just yet :)
+
+<img src="./real-anymal.png" width="500px"></img>
+
+
 ## Todo
 
 - [x] finish belief state decoder
