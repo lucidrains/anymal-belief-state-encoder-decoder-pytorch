@@ -15,6 +15,18 @@ from einops_exts import check_shape
 def exists(val):
     return val is not None
 
+# freezing of neural networks (teacher needs to be frozen)
+
+def set_module_requires_grad_(module, requires_grad):
+    for param in module.parameters():
+        param.requires_grad = requires_grad
+
+def freeze_all_layers_(module):
+    set_module_requires_grad_(module, False)
+
+def unfreeze_all_layers_(module):
+    set_module_requires_grad_(module, True)
+
 # in the paper
 # the network attention gates the exteroception, and then sums it to the belief state
 # todo: make sure the padding is on the right side
@@ -535,6 +547,8 @@ class Anymal(nn.Module):
         noise_strength = 0.1
     ):
         self.teacher.eval()
+        freeze_all_layers_(self.teacher)
+
         with torch.no_grad():
             teacher_action_logits = self.forward_teacher(proprio, extero, privileged)
 
