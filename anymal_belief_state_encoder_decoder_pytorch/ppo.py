@@ -81,7 +81,7 @@ class PPO(nn.Module):
         *,
         env,
         anymal,
-        epochs = 200,
+        epochs = 100,
         lr = 3e-4,
         betas = (0.9, 0.999),
         eps_clip = 0.2,

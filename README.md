@@ -122,15 +122,22 @@ anymal = Anymal(
     recon_loss_weight = 0.5
 )
 
-env = MockEnv(
+mock_env = MockEnv(
     proprio_dim = 133,
     extero_dim = 52,
     privileged_dim = 50
 )
 
 ppo = PPO(
-    env = env,
-    anymal = anymal
+    env = mock_env,
+    anymal = anymal,
+    epochs = 10,
+    lr = 3e-4,
+    eps_clip = 0.2,
+    beta_s = 0.01,
+    value_clip = 0.4,
+    max_timesteps = 10000,
+    update_timesteps = 5000,
 )
 
 # train for 10 episodes
@@ -140,7 +147,7 @@ for _ in range(10):
 
 # save the weights of the teacher for student training
 
-torch.save('./trained-teacher.pt', anymal.state_dict())
+torch.save(anymal.state_dict(), './anymal-with-trained-teacher.pt')
 ```
 
 ... You've beaten Boston Dynamics and its team of highly paid control engineers!
