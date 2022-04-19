@@ -155,7 +155,10 @@ But you probably haven't beaten a real quadripedal "anymal" just yet :)
 - [x] finish belief state decoder
 - [x] wrapper class that instantiates both teacher and student, handle student forward pass with reconstruction loss + behavioral loss
 - [x] handle noising of exteroception for student
-- [ ] add basic PPO logic for teacher + reward crafting - play around with deepminds mujoco
+- [x] add basic PPO logic for teacher
+- [ ] add basic student training loop with mock environment
+- [ ] add reward crafting as in paper
+- [ ] play around with deepminds mujoco
 
 ## Diagrams
 
