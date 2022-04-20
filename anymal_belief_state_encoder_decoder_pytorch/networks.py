@@ -114,6 +114,7 @@ class Student(nn.Module):
         gru_input_dim = (latent_extero_dim * num_legs) + proprio_dim
         gru_input_dims = (gru_input_dim, *((gru_hidden_size,) * (gru_num_layers - 1)))
         self.gru_cells = nn.ModuleList([GRUCell(input_dim, gru_hidden_size) for input_dim in gru_input_dims])
+        self.gru_hidden_size = gru_hidden_size
 
         # belief state encoding
 
@@ -142,6 +143,10 @@ class Student(nn.Module):
             nn.Linear(mlp_hidden[-1], num_actions)
         )
 
+    def get_gru_hiddens(self):
+        device = next(self.parameters()).device
+        return torch.zeros((len(self.gru_cells), self.gru_hidden_size))
+
     def forward(
         self,
         proprio,
@@ -161,7 +166,7 @@ class Student(nn.Module):
         if not exists(hiddens):
             prev_hiddens = (None,) * len(self.gru_cells)
         else:
-            prev_hiddens = hiddens.unbind(dim = 0)
+            prev_hiddens = hiddens.unbind(dim = -2)
 
         gru_input = torch.cat((proprio, latent_extero), dim = -1)
 
@@ -171,6 +176,8 @@ class Student(nn.Module):
             next_hiddens.append(gru_input)
 
         gru_output = gru_input
+
+        next_hiddens = torch.stack(next_hiddens, dim = -2)
 
         # attention gating of exteroception
 
@@ -211,7 +218,7 @@ class Student(nn.Module):
 
         # whether to return raw policy logits or action probs wrapped with Categorical
 
-        return return_action, torch.stack(next_hiddens, dim = 0), (recon_privileged, recon_extero)
+        return return_action, next_hiddens, (recon_privileged, recon_extero)
 
 class Teacher(nn.Module):
     def __init__(
