@@ -201,7 +201,7 @@ But you probably haven't beaten a real quadripedal "anymal" just yet :)
 - [x] wrapper class that instantiates both teacher and student, handle student forward pass with reconstruction loss + behavioral loss
 - [x] handle noising of exteroception for student
 - [x] add basic PPO logic for teacher
-- [ ] add basic student training loop with mock environment
+- [x] add basic student training loop with mock environment
 - [ ] add reward crafting as in paper
 - [ ] play around with deepminds mujoco
 
