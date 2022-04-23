@@ -84,7 +84,7 @@ proprio = torch.randn(1, 133)
 extero = torch.randn(1, 4, 52)
 privileged = torch.randn(1, 50)
 
-# first train teacher (todo: still need to add full PPO training loop)
+# first train teacher
 
 teacher_action_logits = anymal.forward_teacher(proprio, extero, privileged)
 
