@@ -203,6 +203,7 @@ But you probably haven't beaten a real quadripedal "anymal" just yet :)
 - [x] add basic PPO logic for teacher
 - [x] add basic student training loop with mock environment
 - [ ] add reward crafting as in paper
+- [ ] make sure all hyperparameters for teacher PPO training + teacher / student distillation is in accordance with appendix
 - [ ] play around with deepminds mujoco
 
 ## Diagrams
