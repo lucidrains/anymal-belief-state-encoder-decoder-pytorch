@@ -81,17 +81,17 @@ class PPO(nn.Module):
         *,
         env,
         anymal,
-        epochs = 100,
-        lr = 3e-4,
+        epochs = 2,
+        lr = 5e-4,
         betas = (0.9, 0.999),
         eps_clip = 0.2,
-        beta_s = 0.01,
+        beta_s = 0.005,
         value_clip = 0.4,
         max_timesteps = 10000,
         update_timesteps = 5000,
         lam = 0.95,
         gamma = 0.99,
-        minibatch_size = 16
+        minibatch_size = 8300
     ):
         super().__init__()
         assert isinstance(anymal, Anymal)

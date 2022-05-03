@@ -29,11 +29,12 @@ class StudentTrainer(nn.Module):
         *,
         anymal,
         env,
-        epochs = 1,
-        lr = 3e-4,
+        epochs = 2,
+        lr = 5e-4,
         max_timesteps = 10000,
         update_timesteps = 5000,
         minibatch_size = 16,
+        truncate_tpbtt = 10
     ):
         super().__init__()
         self.env = env
@@ -44,11 +45,13 @@ class StudentTrainer(nn.Module):
         self.max_timesteps = max_timesteps
         self.update_timesteps = update_timesteps
         self.minibatch_size = minibatch_size
+        self.truncate_tpbtt = truncate_tpbtt
 
     def learn_from_memories(
         self,
         memories,
-        next_states
+        next_states,
+        noise_strength = 0.
     ):
         device = next(self.parameters()).device
 
@@ -76,14 +79,26 @@ class StudentTrainer(nn.Module):
 
         # policy phase training, similar to original PPO
         for _ in range(self.epochs):
-            for proprio, extero, privileged, hiddens in dl:
-                loss, hidden = self.anymal(proprio, extero, privileged, hiddens = hiddens)
+            for ind, (proprio, extero, privileged, hiddens) in enumerate(dl):
+
+                loss, hidden = self.anymal(
+                    proprio,
+                    extero,
+                    privileged,
+                    hiddens = hiddens,
+                    noise_strength = noise_strength
+                )
 
                 loss.backward()
-                self.optimizer.step()
-                self.optimizer.zero_grad()
 
-    def forward(self):
+                if not ((ind + 1) % self.truncate_tpbtt): # how far back in time should the gradients go for recurrence
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+
+    def forward(
+        self,
+        noise_strength = 0.
+    ):
         device = next(self.parameters()).device
 
         time = 0
@@ -116,7 +131,7 @@ class StudentTrainer(nn.Module):
             states = next_states
 
             if time % self.update_timesteps == 0:
-                self.learn_from_memories(memories, next_states)
+                self.learn_from_memories(memories, next_states, noise_strength = noise_strength)
                 memories.clear()
 
             if done:
