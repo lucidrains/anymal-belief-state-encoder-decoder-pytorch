@@ -202,8 +202,9 @@ But you probably haven't beaten a real quadripedal "anymal" just yet :)
 - [x] handle noising of exteroception for student
 - [x] add basic PPO logic for teacher
 - [x] add basic student training loop with mock environment
+- [x] make sure all hyperparameters for teacher PPO training + teacher / student distillation is in accordance with appendix
+- [ ] noise scheduler for student (curriculum factor that goes from 0 to 1 from epochs 1 to 100)
 - [ ] add reward crafting as in paper
-- [ ] make sure all hyperparameters for teacher PPO training + teacher / student distillation is in accordance with appendix
 - [ ] play around with deepminds mujoco
 
 ## Diagrams
