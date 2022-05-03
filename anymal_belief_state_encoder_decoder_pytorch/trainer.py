@@ -47,6 +47,8 @@ class StudentTrainer(nn.Module):
         self.minibatch_size = minibatch_size
         self.truncate_tpbtt = truncate_tpbtt
 
+        self.running_proprio, self.running_extero = anymal.get_observation_running_stats()
+
     def learn_from_memories(
         self,
         memories,
@@ -58,33 +60,38 @@ class StudentTrainer(nn.Module):
         # retrieve and prepare data from memory for training
 
         states = []
+        teacher_states = []
         hiddens = []
 
-        for (state, hidden) in memories:
+        for (state, teacher_state, hidden) in memories:
             states.append(state)
+            teacher_states.append(teacher_state)
             hiddens.append(hidden)
 
         states = tuple(zip(*states))
+        teacher_states = tuple(zip(*teacher_states))
 
         # convert values to torch tensors
 
         to_torch_tensor = lambda t: torch.stack(t).to(device).detach()
 
         states = map(to_torch_tensor, states)
+        teacher_states = map(to_torch_tensor, teacher_states)
         hiddens = to_torch_tensor(hiddens)
 
         # prepare dataloader for policy phase training
 
-        dl = create_shuffled_dataloader([*states, hiddens], self.minibatch_size)
+        dl = create_shuffled_dataloader([*states, *teacher_states, hiddens], self.minibatch_size)
 
         # policy phase training, similar to original PPO
         for _ in range(self.epochs):
-            for ind, (proprio, extero, privileged, hiddens) in enumerate(dl):
+            for ind, (proprio, extero, privileged, teacher_proprio, teacher_extero, hiddens) in enumerate(dl):
 
                 loss, hidden = self.anymal(
                     proprio,
                     extero,
                     privileged,
+                    teacher_states = (teacher_proprio, teacher_extero),
                     hiddens = hiddens,
                     noise_strength = noise_strength
                 )
@@ -108,13 +115,32 @@ class StudentTrainer(nn.Module):
         hidden = self.anymal.student.get_gru_hiddens()
         hidden = rearrange(hidden, 'l d -> 1 l d')
 
+        self.running_proprio.clear()
+        self.running_extero.clear()
+
         for timestep in range(self.max_timesteps):
             time += 1
 
             states = list(map(lambda t: t.to(device), states))
             anymal_states = list(map(lambda t: rearrange(t, '... -> 1 ...'), states))
 
-            memories.append((states, rearrange(hidden, '1 ... -> ...')))
+            # teacher needs to have normalized observations
+
+            (proprio, extero, privileged) = states
+
+            self.running_proprio.push(proprio)
+            self.running_extero.push(extero)
+
+            teacher_states = (
+                self.running_proprio.norm(proprio),
+                self.running_extero.norm(extero)
+            )
+
+            teacher_anymal_states = list(map(lambda t: rearrange(t, '... -> 1 ...'), teacher_states))
+
+            # add states to memories
+
+            memories.append((states, teacher_states, rearrange(hidden, '1 ... -> ...')))
 
             dist, hidden = self.anymal.forward_student(
                 *anymal_states[:-1],

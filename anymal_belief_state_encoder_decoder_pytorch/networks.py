@@ -9,6 +9,8 @@ from einops import rearrange
 from einops_exts import check_shape
 from einops.layers.torch import Rearrange
 
+from anymal_belief_state_encoder_decoder_pytorch.running import RunningStats
+
 # helper functions
 
 def exists(val):
@@ -320,6 +322,10 @@ class Anymal(nn.Module):
         recon_loss_weight = 0.5
     ):
         super().__init__()
+        self.proprio_dim = proprio_dim
+        self.num_legs = num_legs
+        self.extero_dim = extero_dim
+
         self.student = Student(
             num_actions = num_actions,
             proprio_dim = proprio_dim,
@@ -353,6 +359,9 @@ class Anymal(nn.Module):
 
         self.recon_loss_weight = recon_loss_weight
 
+    def get_observation_running_stats(self):
+        return RunningStats(self.proprio_dim), RunningStats((self.num_legs, self.extero_dim))
+
     def init_student_with_teacher(self):
         self.student.extero_encoder.load_state_dict(self.teacher.extero_encoder.state_dict())
         self.student.to_logits.load_state_dict(self.teacher.to_logits.state_dict())
@@ -371,6 +380,7 @@ class Anymal(nn.Module):
         proprio,
         extero,
         privileged,
+        teacher_states = None,
         hiddens = None,
         noise_strength = 0.1
     ):
@@ -378,7 +388,8 @@ class Anymal(nn.Module):
         freeze_all_layers_(self.teacher)
 
         with torch.no_grad():
-            teacher_action_logits = self.forward_teacher(proprio, extero, privileged)
+            teacher_proprio, teacher_extero = teacher_states if exists(teacher_states) else (proprio, extero)
+            teacher_action_logits = self.forward_teacher(teacher_proprio, teacher_extero, privileged)
 
         noised_extero = extero + torch.rand_like(extero) * noise_strength
 

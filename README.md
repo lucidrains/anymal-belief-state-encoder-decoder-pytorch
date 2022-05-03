@@ -204,6 +204,7 @@ But you probably haven't beaten a real quadripedal "anymal" just yet :)
 - [x] add basic student training loop with mock environment
 - [x] make sure all hyperparameters for teacher PPO training + teacher / student distillation is in accordance with appendix
 - [ ] noise scheduler for student (curriculum factor that goes from 0 to 1 from epochs 1 to 100)
+- [ ] fix student training, it does not look correct
 - [ ] make sure tbptt is setup correctly
 - [ ] add reward crafting as in paper
 - [ ] play around with deepminds mujoco

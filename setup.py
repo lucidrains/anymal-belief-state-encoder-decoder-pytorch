@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'anymal-belief-state-encoder-decoder-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.0.14',
+  version = '0.0.16',
   license='MIT',
   description = 'Anymal Belief-state Encoder Decoder - Pytorch',
   author = 'Phil Wang',

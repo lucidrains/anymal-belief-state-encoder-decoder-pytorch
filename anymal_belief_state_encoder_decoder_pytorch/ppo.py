@@ -112,6 +112,11 @@ class PPO(nn.Module):
         self.lam = lam
         self.gamma = gamma
 
+        # in paper, they said observations fed to teacher were normalized
+        # by running mean
+
+        self.running_proprio, self.running_extero = anymal.get_observation_running_stats()
+
     def learn_from_memories(
         self,
         memories,
@@ -172,6 +177,7 @@ class PPO(nn.Module):
         dl = create_shuffled_dataloader([*states, actions, old_log_probs, rewards, old_values], self.minibatch_size)
 
         # policy phase training, similar to original PPO
+
         for _ in range(self.epochs):
             for proprio, extero, privileged, actions, old_log_probs, rewards, old_values in dl:
 
@@ -207,10 +213,28 @@ class PPO(nn.Module):
         states = self.env.reset() # states assumed to be (proprioception, exteroception, privileged information)
         memories = deque([])
 
+        self.running_proprio.clear()
+        self.running_extero.clear()
+
         for timestep in range(self.max_timesteps):
             time += 1
 
             states = list(map(lambda t: t.to(device), states))
+            proprio, extero, privileged = states
+
+            # update running means for observations, for teacher
+
+            self.running_proprio.push(proprio)
+            self.running_extero.push(extero)
+
+            # normalize observation states for teacher (proprio and extero)
+
+            states = (
+                self.running_proprio.norm(proprio),
+                self.running_extero.norm(extero),
+                privileged
+            )
+
             anymal_states = list(map(lambda t: rearrange(t, '... -> 1 ...'), states))
 
             dist, values = self.anymal.forward_teacher(
