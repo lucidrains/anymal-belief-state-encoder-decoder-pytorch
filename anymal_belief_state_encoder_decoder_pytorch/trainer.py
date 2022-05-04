@@ -19,9 +19,9 @@ class ExperienceDataset(Dataset):
     def __getitem__(self, ind):
         return tuple(map(lambda t: t[ind], self.data))
 
-def create_shuffled_dataloader(data, batch_size):
+def create_dataloader(data, batch_size):
     ds = ExperienceDataset(data)
-    return DataLoader(ds, batch_size = batch_size, shuffle = True)
+    return DataLoader(ds, batch_size = batch_size)
 
 class StudentTrainer(nn.Module):
     def __init__(
@@ -81,7 +81,7 @@ class StudentTrainer(nn.Module):
 
         # prepare dataloader for policy phase training
 
-        dl = create_shuffled_dataloader([*states, *teacher_states, hiddens], self.minibatch_size)
+        dl = create_dataloader([*states, *teacher_states, hiddens], self.minibatch_size)
 
         # policy phase training, similar to original PPO
         for _ in range(self.epochs):
