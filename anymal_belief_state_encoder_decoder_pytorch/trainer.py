@@ -21,7 +21,7 @@ class ExperienceDataset(Dataset):
 
 def create_dataloader(data, batch_size):
     ds = ExperienceDataset(data)
-    return DataLoader(ds, batch_size = batch_size)
+    return DataLoader(ds, batch_size = batch_size, drop_last = True)
 
 class StudentTrainer(nn.Module):
     def __init__(
@@ -83,24 +83,30 @@ class StudentTrainer(nn.Module):
 
         dl = create_dataloader([*states, *teacher_states, hiddens], self.minibatch_size)
 
+        current_hiddens = self.anymal.student.get_gru_hiddens()
+        current_hiddens = rearrange(current_hiddens, 'l d -> 1 l d')
+
         # policy phase training, similar to original PPO
         for _ in range(self.epochs):
-            for ind, (proprio, extero, privileged, teacher_proprio, teacher_extero, hiddens) in enumerate(dl):
+            for ind, (proprio, extero, privileged, teacher_proprio, teacher_extero, episode_hiddens) in enumerate(dl):
 
-                loss, hidden = self.anymal(
+                straight_through_hiddens = current_hiddens - current_hiddens.detach() + episode_hiddens
+
+                loss, current_hiddens = self.anymal(
                     proprio,
                     extero,
                     privileged,
                     teacher_states = (teacher_proprio, teacher_extero),
-                    hiddens = hiddens,
+                    hiddens = straight_through_hiddens,
                     noise_strength = noise_strength
                 )
 
-                loss.backward()
+                loss.backward(retain_graph = True)
 
                 if not ((ind + 1) % self.truncate_tpbtt): # how far back in time should the gradients go for recurrence
                     self.optimizer.step()
                     self.optimizer.zero_grad()
+                    current_hiddens = current_hiddens.detach()
 
     def forward(
         self,
