@@ -62,11 +62,13 @@ class StudentTrainer(nn.Module):
         states = []
         teacher_states = []
         hiddens = []
+        dones = []
 
-        for (state, teacher_state, hidden) in memories:
+        for (state, teacher_state, hidden, done) in memories:
             states.append(state)
             teacher_states.append(teacher_state)
             hiddens.append(hidden)
+            dones.append(torch.Tensor([done]))
 
         states = tuple(zip(*states))
         teacher_states = tuple(zip(*teacher_states))
@@ -78,17 +80,17 @@ class StudentTrainer(nn.Module):
         states = map(to_torch_tensor, states)
         teacher_states = map(to_torch_tensor, teacher_states)
         hiddens = to_torch_tensor(hiddens)
+        dones = to_torch_tensor(dones)
 
         # prepare dataloader for policy phase training
 
-        dl = create_dataloader([*states, *teacher_states, hiddens], self.minibatch_size)
+        dl = create_dataloader([*states, *teacher_states, hiddens, dones], self.minibatch_size)
 
         current_hiddens = self.anymal.student.get_gru_hiddens()
         current_hiddens = rearrange(current_hiddens, 'l d -> 1 l d')
 
-        # policy phase training, similar to original PPO
         for _ in range(self.epochs):
-            for ind, (proprio, extero, privileged, teacher_proprio, teacher_extero, episode_hiddens) in enumerate(dl):
+            for ind, (proprio, extero, privileged, teacher_proprio, teacher_extero, episode_hiddens, done) in enumerate(dl):
 
                 straight_through_hiddens = current_hiddens - current_hiddens.detach() + episode_hiddens
 
@@ -103,10 +105,20 @@ class StudentTrainer(nn.Module):
 
                 loss.backward(retain_graph = True)
 
-                if not ((ind + 1) % self.truncate_tpbtt): # how far back in time should the gradients go for recurrence
+                tbptt_limit = not ((ind + 1) % self.truncate_tpbtt)
+                if tbptt_limit: # how far back in time should the gradients go for recurrence
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     current_hiddens = current_hiddens.detach()
+
+                # detacher hiddens depending on whether it is a new episode or not
+                # todo: restructure dataloader to load one episode per batch rows
+
+                maybe_detached_hiddens = []
+                for current_hidden, done in zip(current_hiddens.unbind(dim = 0), dones.unbind(dim = 0)):
+                    maybe_detached_hiddens.append(current_hidden.detached() if done else current_hidden)
+
+                current_hiddens = torch.stack(maybe_detached_hiddens)
 
     def forward(
         self,
@@ -115,6 +127,7 @@ class StudentTrainer(nn.Module):
         device = next(self.parameters()).device
 
         time = 0
+        done = False
         states = self.env.reset()
         memories = deque([])
 
@@ -146,7 +159,12 @@ class StudentTrainer(nn.Module):
 
             # add states to memories
 
-            memories.append((states, teacher_states, rearrange(hidden, '1 ... -> ...')))
+            memories.append((
+                states,
+                teacher_states,
+                rearrange(hidden, '1 ... -> ...'),
+                done
+            ))
 
             dist, hidden = self.anymal.forward_student(
                 *anymal_states[:-1],
