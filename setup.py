@@ -19,6 +19,7 @@ setup(
   install_requires=[
     'assoc-scan>=0.0.2',
     'einops>=0.8',
+    'evolutionary-policy-optimization>=0.0.61',
     'torch>=2.2',
   ],
   classifiers=[
