@@ -6,7 +6,6 @@ from torch.distributions import Categorical
 from torch.optim import Adam
 
 from einops import rearrange
-from einops_exts import check_shape
 from einops.layers.torch import Rearrange
 
 from anymal_belief_state_encoder_decoder_pytorch.running import RunningStats
@@ -15,6 +14,9 @@ from anymal_belief_state_encoder_decoder_pytorch.running import RunningStats
 
 def exists(val):
     return val is not None
+
+def check_shape(tensor, pattern, **kwargs):
+    return rearrange(tensor, f'{pattern} -> {pattern}', **kwargs)
 
 # freezing of neural networks (teacher needs to be frozen)
 

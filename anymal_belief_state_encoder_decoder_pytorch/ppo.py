@@ -1,14 +1,26 @@
 from collections import namedtuple, deque
 
 import torch
-from torch import nn
-from torch.utils.data import Dataset, DataLoader
+from torch import nn, cat, stack
+from torch.nn import Module
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 from torch.optim import Adam
+
+from assoc_scan import AssocScan
 
 from anymal_belief_state_encoder_decoder_pytorch import Anymal
 from anymal_belief_state_encoder_decoder_pytorch.networks import unfreeze_all_layers_
 
 from einops import rearrange
+
+# helper functions
+
+def exists(val):
+    return val is not None
+
+def default(v, d):
+    return v if exists(v) else d
 
 # they use basic PPO for training the teacher with privileged information
 # then they used noisy student training, using the trained "oracle" teacher as guide
@@ -17,25 +29,37 @@ from einops import rearrange
 
 Memory = namedtuple('Memory', ['state', 'action', 'action_log_prob', 'reward', 'done', 'value'])
 
-class ExperienceDataset(Dataset):
-    def __init__(self, data):
-        super().__init__()
-        self.data = data
-
-    def __len__(self):
-        return len(self.data[0])
-
-    def __getitem__(self, ind):
-        return tuple(map(lambda t: t[ind], self.data))
-
 def create_shuffled_dataloader(data, batch_size):
-    ds = ExperienceDataset(data)
+    ds = TensorDataset(*data)
     return DataLoader(ds, batch_size = batch_size, shuffle = True)
 
 # ppo helper functions
 
 def normalize(t, eps = 1e-5):
     return (t - t.mean()) / (t.std() + eps)
+
+# generalized advantage estimate
+
+def calc_generalized_advantage_estimate(
+    rewards,
+    values,
+    masks,
+    gamma = 0.99,
+    lam = 0.95,
+    use_accelerated = None
+):
+    device, is_cuda = rewards.device, rewards.is_cuda
+    use_accelerated = default(use_accelerated, is_cuda)
+
+    values, values_next = values[:-1], values[1:]
+
+    delta = rewards + gamma * values_next * masks - values
+    gates = gamma * lam * masks
+
+    scan = AssocScan(reverse = True, use_accelerated = use_accelerated)
+
+    gae = scan(gates, delta)
+    return gae + values
 
 def clipped_value_loss(values, rewards, old_values, clip):
     value_clipped = old_values + (values - old_values).clamp(-clip, clip)
@@ -75,7 +99,7 @@ class MockEnv(object):
 
 # main ppo class
 
-class PPO(nn.Module):
+class PPO(Module):
     def __init__(
         self,
         *,
@@ -125,56 +149,47 @@ class PPO(nn.Module):
         device = next(self.parameters()).device
 
         # retrieve and prepare data from memory for training
-        states = []
-        actions = []
-        old_log_probs = []
-        rewards = []
-        masks = []
-        values = []
 
-        for mem in memories:
-            states.append(mem.state)
-            actions.append(torch.tensor(mem.action))
-            old_log_probs.append(mem.action_log_prob)
-            rewards.append(mem.reward)
-            masks.append(1 - float(mem.done))
-            values.append(mem.value)
+        (
+            states,
+            actions,
+            old_log_probs,
+            rewards,
+            dones,
+            values
+        ) = tuple(zip(*memories))
 
         states = tuple(zip(*states))
 
         # calculate generalized advantage estimate
 
-        next_states = map(lambda t: t.to(device), next_states)
-        next_states = map(lambda t: rearrange(t, '... -> 1 ...'), next_states)
+        rewards = cat(rewards).to(device)
+        values = cat(values).to(device).detach()
+        masks = 1. - cat(dones).to(device).float()
 
-        _, next_value = self.anymal.forward_teacher(*next_states, return_value_head = True)
-        next_value = next_value.detach()
+        next_states = [t.to(device) for t in next_states]
+        next_states = [rearrange(t, '... -> 1 ...') for t in next_states]
 
-        values = values + [next_value]
+        with torch.no_grad():
+            self.anymal.eval()
+            _, next_value = self.anymal.forward_teacher(*next_states, return_value_head = True)
+            next_value = next_value.detach()
 
-        returns = []
-        gae = 0
-        for i in reversed(range(len(rewards))):
-            delta = rewards[i] + self.gamma * values[i + 1] * masks[i] - values[i]
-            gae = delta + self.gamma * self.lam * masks[i] * gae
-            returns.insert(0, gae + values[i])
+        values_with_next = cat((values, next_value))
+
+        returns = calc_generalized_advantage_estimate(rewards, values_with_next, masks, self.gamma, self.lam).detach()
 
         # convert values to torch tensors
 
-        to_torch_tensor = lambda t: torch.stack(t).to(device).detach()
+        to_torch_tensor = lambda t: stack(t).to(device).detach()
 
         states = map(to_torch_tensor, states)
         actions = to_torch_tensor(actions)
         old_log_probs = to_torch_tensor(old_log_probs)
 
-        old_values = to_torch_tensor(values[:-1])
-        old_values = rearrange(old_values, '... 1 -> ...')
-
-        rewards = torch.tensor(returns).float().to(device)
-
         # prepare dataloader for policy phase training
 
-        dl = create_shuffled_dataloader([*states, actions, old_log_probs, rewards, old_values], self.minibatch_size)
+        dl = create_shuffled_dataloader([*states, actions, old_log_probs, rewards, values], self.minibatch_size)
 
         # policy phase training, similar to original PPO
 
@@ -245,7 +260,6 @@ class PPO(nn.Module):
 
             action = dist.sample()
             action_log_prob = dist.log_prob(action)
-            action = action.item()
 
             next_states, reward, done, _ = self.env.step(action)
 
