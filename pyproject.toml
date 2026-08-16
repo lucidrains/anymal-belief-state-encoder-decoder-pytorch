@@ -1,0 +1,54 @@
+[project]
+name = "anymal-belief-state-encoder-decoder-pytorch"
+version = "0.0.22"
+description = "Anymal Belief-state Encoder Decoder - Pytorch"
+authors = [
+    { name = "Phil Wang", email = "lucidrains@gmail.com" }
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.6"
+keywords = [
+    'artificial intelligence',
+    'deep learning',
+    'attention gating',
+    'belief state',
+    'robotics'
+]
+
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Intended Audience :: Developers',
+    'Topic :: Scientific/Engineering :: Artificial Intelligence',
+    'License :: OSI Approved :: MIT License',
+    'Programming Language :: Python :: 3.6',
+]
+
+dependencies = [
+    "assoc-scan>=0.0.2",
+    "einops>=0.8",
+    "ema-pytorch>=0.8.3",
+    "evolutionary-policy-optimization>=0.0.61",
+    "torch>=2.2",
+]
+
+[project.urls]
+Repository = "https://github.com/lucidrains/anymal-belief-state-encoder-decoder-pytorch"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["anymal_belief_state_encoder_decoder_pytorch"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "anymal_belief_state_encoder_decoder_pytorch",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]

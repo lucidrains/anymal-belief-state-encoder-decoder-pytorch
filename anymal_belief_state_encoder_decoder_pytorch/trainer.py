@@ -116,7 +116,7 @@ class StudentTrainer(nn.Module):
 
                 maybe_detached_hiddens = []
                 for current_hidden, done in zip(current_hiddens.unbind(dim = 0), dones.unbind(dim = 0)):
-                    maybe_detached_hiddens.append(current_hidden.detached() if done else current_hidden)
+                    maybe_detached_hiddens.append(current_hidden.detach() if done else current_hidden)
 
                 current_hiddens = torch.stack(maybe_detached_hiddens)
 

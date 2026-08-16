@@ -168,6 +168,18 @@ class PPO(Module):
         masks = 1. - cat(dones).to(device).float()
 
         next_states = [t.to(device) for t in next_states]
+
+        proprio, extero, privileged = next_states
+
+        # next state must be normalized with the same running statistics
+        # used for the states in memory
+
+        next_states = (
+            self.running_proprio.norm(proprio),
+            self.running_extero.norm(extero),
+            privileged
+        )
+
         next_states = [rearrange(t, '... -> 1 ...') for t in next_states]
 
         with torch.no_grad():

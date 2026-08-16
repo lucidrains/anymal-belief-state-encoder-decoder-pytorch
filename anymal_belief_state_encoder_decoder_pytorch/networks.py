@@ -149,7 +149,7 @@ class Student(nn.Module):
 
     def get_gru_hiddens(self):
         device = next(self.parameters()).device
-        return torch.zeros((len(self.gru_cells), self.gru_hidden_size))
+        return torch.zeros((len(self.gru_cells), self.gru_hidden_size), device = device)
 
     def forward(
         self,
